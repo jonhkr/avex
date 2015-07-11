@@ -29,12 +29,39 @@ defmodule Avex.Model do
     register_fields(:optional_fields, fields)
   end
 
-  defmacro update(field, [do: block]) do
+  defp scoped_val({:when, _, [val|_]}), do: val
+  defp scoped_val({_, _, _} = val) do
+   quote do: var!(unquote(val))
+  end
+  defp scoped_val(val), do: val
+
+  defp head(call, {:when, context, [_|t]}) do
+    {:when, context, [call|t]}
+  end
+  defp head(call, _), do: call
+
+  defp func(call, scope, block) do
+    head = head(call, scope)
     quote do
+      def unquote(head), do: unquote(block)
+    end
+  end
+
+  defp quoted_update_func(field, scope, block) do
+    scoped_val = scoped_val(scope)
+    call = quote do
+      update(unquote(scoped_val), unquote(field))
+    end
+    func = func(call, scope, block)
+    quote do
+      unquote(func)
       field = unquote(field)
-      def update(var!(value), field), do: unquote(block)
       @updates {field, {__MODULE__, :update, [field]}}
     end
+  end
+
+  defmacro update(field, scope, [do: block]) do
+    quoted_update_func(field, scope, block)
   end
 
   defmacro update(field, [{:with, with}|t]) do
@@ -44,10 +71,10 @@ defmodule Avex.Model do
     end
   end
 
-  defmacro validate(field, [do: block]) do
+  defmacro validate(field, scoped_val, [do: block]) do
     quote do
       field = unquote(field)
-      def validate(var!(value), field), do: unquote(block)
+      def validate(var!(unquote(scoped_val)), field), do: unquote(block)
       @validations {field, {__MODULE__, :validate, [field]}}
     end
   end
@@ -73,14 +100,17 @@ defmodule Avex.Model do
   @doc false
   defmacro __before_compile__(_) do
     quote do
-      def cast(params) do
-        required_fields = @required_fields |> Enum.reverse
-        optional_fields = @optional_fields |> Enum.reverse
-        fields = required_fields ++ optional_fields
-        updates = @updates |> Enum.reverse
-        validations = @validations |> Enum.reverse
+      defstruct @required_fields ++ @optional_fields
 
-        Enum.reduce(fields, {[], []}, fn field, {values, errors} ->
+      def cast(params) do
+        required_fields = Enum.reverse @required_fields
+        optional_fields = Enum.reverse @optional_fields
+        fields = required_fields ++ optional_fields
+        updates = Enum.reverse @updates
+        validations = Enum.reverse @validations
+        params = Avex.normalize(params)
+
+        {values, errors} = Enum.reduce(fields, {[], []}, fn field, {values, errors} ->
           value = Map.get(params, to_string(field))
 
           ufns = Keyword.get_values(updates, field)
@@ -99,9 +129,17 @@ defmodule Avex.Model do
                   {:error, message} -> [message|e]
                 end
               end)
-              {[{field, value}|values], [{field, field_errors}|errors]}
+
+              errors = case field_errors do
+                [] -> errors
+                [e] -> [{field, e}|errors]
+                el -> [{field, el}|errors]
+              end
+              {[{field, value}|values], errors}
           end
         end)
+
+        {struct(__MODULE__, values), length(errors) == 0, errors}
       end
     end
   end
