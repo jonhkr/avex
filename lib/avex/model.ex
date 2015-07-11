@@ -100,6 +100,49 @@ defmodule Avex.Model do
     end
   end
 
+  def normalize(map) when is_map(map) do
+    Enum.reduce(map, %{}, fn 
+      {k, v}, acc when is_binary(k) ->
+        Map.put(acc, k, v)
+      {k, v}, acc when is_atom(k) ->
+        Map.put(acc, Atom.to_string(k), v)
+    end)
+  end
+
+  def apply_updates(field, value, updates) do
+    updates
+      |> Keyword.get_values(field)
+      |> Enum.reduce(value, fn {m, f, args}, v -> apply(m, f, [v|args]) end)
+  end
+
+  defp apply_validation(module, f, args, errors) do
+    case apply(module, f, args) do
+      :ok -> errors
+      {:error, message} -> [message|errors]
+    end
+  end
+
+  def apply_validations(field, value, required_fields, validations) do
+    case value do
+      nil -> 
+        error = if field in required_fields, do: "required", else: []
+        {{field, nil}, {field, error}}
+      _ ->
+        field_errors = validations
+          |> Keyword.get_values(field)
+          |> Enum.reduce([], fn {m, f, args}, e ->
+              apply_validation(m, f, [value|args], e)
+            end)
+
+        errors = case field_errors do
+          [e] -> {field, e}
+          _ -> {field, field_errors}
+        end
+
+        {{field, value}, errors}
+    end
+  end
+
   @doc false
   defmacro __before_compile__(_) do
     quote do
@@ -111,35 +154,18 @@ defmodule Avex.Model do
         fields = required_fields ++ optional_fields
         updates = Enum.reverse @updates
         validations = Enum.reverse @validations
-        params = Avex.normalize(params)
+        params = Avex.Model.normalize(params)
 
         {values, errors} = Enum.reduce(fields, {[], []}, fn field, {values, errors} ->
-          value = Map.get(params, to_string(field))
+          value = Avex.Model.apply_updates(field, Map.get(params, to_string(field)), updates)
+          {value, error} = Avex.Model.apply_validations(field, value, required_fields, validations)
 
-          ufns = Keyword.get_values(updates, field)
-          value = Enum.reduce(ufns, value, fn {m, f, args}, value ->
-            apply(m, f, [value|args])
-          end)
-
-          case value do
-            nil when field in @required_fields ->
-              {[{field, nil}|values], [{field, "required"}|errors]}
-            _ -> 
-              vfns = Keyword.get_values(validations, field)
-              field_errors = Enum.reduce(vfns, [], fn {m, f, args}, e ->
-                case apply(m, f, [value|args]) do
-                  :ok -> e
-                  {:error, message} -> [message|e]
-                end
-              end)
-
-              errors = case field_errors do
-                [] -> errors
-                [e] -> [{field, e}|errors]
-                el -> [{field, el}|errors]
-              end
-              {[{field, value}|values], errors}
+          errors = case error do
+            {^field, []} -> errors
+            {^field, _} -> [error|errors]
           end
+
+          {[value|values], errors}
         end)
 
         {struct(__MODULE__, values), length(errors) == 0, errors}
