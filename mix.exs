@@ -7,6 +7,8 @@ defmodule Avex.Mixfile do
      elixir: "~> 1.0",
      build_embedded: Mix.env == :prod,
      start_permanent: Mix.env == :prod,
+     description: description,
+     package: package,
      deps: deps]
   end
 
@@ -28,5 +30,17 @@ defmodule Avex.Mixfile do
   # Type `mix help deps` for more examples and options
   defp deps do
     []
+  end
+
+  defp description do
+    """
+    Awesome validations for Elixir
+    """
+  end
+
+  defp package do
+    [contributors: ["Jonas Trevisan"],
+     licenses: ["MIT"],
+     links: %{"GitHub" => "https://github.com/jonhkr/avex"}]
   end
 end

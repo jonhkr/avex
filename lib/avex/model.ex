@@ -82,26 +82,30 @@ defmodule Avex.Model do
     end
   end
 
-  defmacro validate(field, [format: format]) do
+  defp put_validation(field, module, ref, args) do
     quote do
-      @validations {unquote(field), {Avex, :validate_format, [unquote(format)]}}
+      field = unquote(field)
+      module = unquote(module)
+      ref = unquote(ref)
+      args = unquote(args)
+      @validations {field, {module, ref, args}}
     end
   end
 
-  defmacro validate(field, [included: list]) do
-    quote do
-      @validations {unquote(field), {Avex, :validate_inclusion, [unquote(list)]}}
-    end
+  defmacro validate(field, [{:format, format}|t]) do
+    put_validation(field, Avex, :validate_format, [format|[t]])
   end
 
-  defmacro validate(field, [excluded: list]) do
-    quote do
-      @validations {unquote(field), {Avex, :validate_exclusion, [unquote(list)]}}
-    end
+  defmacro validate(field, [{:included, list}|t]) do
+    put_validation(field, Avex, :validate_inclusion, [list|[t]])
+  end
+
+  defmacro validate(field, [{:excluded, list}|t]) do
+    put_validation(field, Avex, :validate_exclusion, [list|[t]])
   end
 
   def normalize(map) when is_map(map) do
-    Enum.reduce(map, %{}, fn 
+    Enum.reduce(map, %{}, fn
       {k, v}, acc when is_binary(k) ->
         Map.put(acc, k, v)
       {k, v}, acc when is_atom(k) ->
@@ -124,7 +128,7 @@ defmodule Avex.Model do
 
   def apply_validations(field, value, required_fields, validations) do
     case value do
-      nil -> 
+      nil ->
         error = if field in required_fields, do: "required", else: []
         {{field, nil}, {field, error}}
       _ ->
