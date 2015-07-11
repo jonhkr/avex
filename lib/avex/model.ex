@@ -47,21 +47,18 @@ defmodule Avex.Model do
     end
   end
 
-  defp quoted_update_func(field, scope, block) do
+  defmacro update(field, scope, [do: block]) do
     scoped_val = scoped_val(scope)
-    call = quote do
-      update(unquote(scoped_val), unquote(field))
-    end
+    call = quote do: update(unquote(scoped_val), unquote(field))
     func = func(call, scope, block)
     quote do
       unquote(func)
       field = unquote(field)
-      @updates {field, {__MODULE__, :update, [field]}}
+      ref = {field, {__MODULE__, :update, [field]}}
+      if not Enum.member?(@updates, ref) do
+        @updates ref
+      end
     end
-  end
-
-  defmacro update(field, scope, [do: block]) do
-    quoted_update_func(field, scope, block)
   end
 
   defmacro update(field, [{:with, with}|t]) do
@@ -71,11 +68,17 @@ defmodule Avex.Model do
     end
   end
 
-  defmacro validate(field, scoped_val, [do: block]) do
+  defmacro validate(field, scope, [do: block]) do
+    scoped_val = scoped_val(scope)
+    call = quote do: validate(unquote(scoped_val), unquote(field))
+    func = func(call, scope, block)
     quote do
+      unquote(func)
       field = unquote(field)
-      def validate(var!(unquote(scoped_val)), field), do: unquote(block)
-      @validations {field, {__MODULE__, :validate, [field]}}
+      ref = {field, {__MODULE__, :validate, [field]}}
+      if not Enum.member?(@validations, ref) do
+        @validations ref
+      end
     end
   end
 
