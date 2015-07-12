@@ -96,11 +96,11 @@ defmodule Avex.Model do
     put_validation(field, Avex, :validate_format, [format|[t]])
   end
 
-  defmacro validate(field, [{:included, list}|t]) do
+  defmacro validate(field, [{:inclusion, list}|t]) do
     put_validation(field, Avex, :validate_inclusion, [list|[t]])
   end
 
-  defmacro validate(field, [{:excluded, list}|t]) do
+  defmacro validate(field, [{:exclusion, list}|t]) do
     put_validation(field, Avex, :validate_exclusion, [list|[t]])
   end
 

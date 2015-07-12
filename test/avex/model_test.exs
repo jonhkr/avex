@@ -4,7 +4,7 @@ defmodule Avex.ModelTest do
   defmodule Post do
     use Avex.Model
 
-    fields :required, [:title, :body]
+    fields :required, [:title, :body, :number]
     fields :optional, [:tag]
 
     update :title, title when is_binary(title), do: String.capitalize(title)
@@ -15,9 +15,9 @@ defmodule Avex.ModelTest do
       format: ~r/[a-zA-Z0-9]+/,
       message: "title must be formed of alphanumeric characters"
 
-    validate :tag, included: ["Tech", "Tools", "Movies"]
+    validate :tag, inclusion: ["Tech", "Tools", "Movies"]
     validate :tag,
-      excluded: ["Books"],
+      exclusion: ["Books"],
       message: "should not be \"Books\""
 
     validate :body, body do
