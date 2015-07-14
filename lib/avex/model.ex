@@ -13,6 +13,23 @@ defmodule Avex.Model do
     end
   end
 
+  @doc """
+  Register fields of the specified type.
+
+  ## Field types
+    * `:required` - The required fields of the model. These fields will be validated as required.
+    * `:optional` - Optional fields of the model. Validations will only be applied if the fields are present.
+
+  Any other non registered field will be discarded.
+  """
+  defmacro fields(field_type, fields)
+  defmacro fields(:required, fields) do
+    register_fields(:required_fields, fields)
+  end
+  defmacro fields(:optional, fields) do
+    register_fields(:optional_fields, fields)
+  end
+
   defp register_fields(attribute, fields) do
     quote do
       for field <- unquote(fields) do
@@ -21,74 +38,100 @@ defmodule Avex.Model do
     end
   end
 
-  defmacro fields(:required, fields) do
-    register_fields(:required_fields, fields)
+  defp scoped_value({:when, _, [value|_]}), do: value
+  defp scoped_value({_, _, _} = value), do: quote do: var!(unquote(value))
+  defp scoped_value(value), do: value
+
+  defp func_head(call, {:when, context, [_|t]}), do: {:when, context, [call|t]}
+  defp func_head(call, _), do: call
+
+  defp quoted_func(call, scope, block) do
+    func_head = func_head(call, scope)
+    quote do defp unquote(func_head), do: unquote(block) end
   end
 
-  defmacro fields(:optional, fields) do
-    register_fields(:optional_fields, fields)
-  end
-
-  defp scoped_val({:when, _, [val|_]}), do: val
-  defp scoped_val({_, _, _} = val) do
-   quote do: var!(unquote(val))
-  end
-  defp scoped_val(val), do: val
-
-  defp head(call, {:when, context, [_|t]}) do
-    {:when, context, [call|t]}
-  end
-  defp head(call, _), do: call
-
-  defp func(call, scope, block) do
-    head = head(call, scope)
+  defp register_func({name, field, scope, block}, attribute) do
+    scoped_value = scoped_value(scope)
+    call = quote do: unquote(name)(unquote(scoped_value), unquote(field))
+    quoted_func = quoted_func(call, scope, block)
     quote do
-      def unquote(head), do: unquote(block)
+      unquote(quoted_func)
+      field = unquote(field)
+      attribute = unquote(attribute)
+      ref = {field, {unquote(name), [field]}}
+      attr = Module.get_attribute(__MODULE__, attribute)
+      if not Enum.member?(attr, ref) do
+        Module.put_attribute(__MODULE__, attribute, ref)
+      end
     end
   end
 
+  @doc """
+  Define and register an update function for the specified field.
+
+  ## Examples
+
+      update :field_name, value when is_binary(value) do
+        String.upcase(value)
+      end
+      update :field_name, nil, do: nil
+  """
   defmacro update(field, scope, [do: block]) do
-    scoped_val = scoped_val(scope)
-    call = quote do: update(unquote(scoped_val), unquote(field))
-    func = func(call, scope, block)
-    quote do
-      unquote(func)
-      field = unquote(field)
-      ref = {field, {__MODULE__, :update, [field]}}
-      if not Enum.member?(@updates, ref) do
-        @updates ref
-      end
-    end
+    register_func({:update, field, scope, block}, :updates)
   end
 
+  @doc """
+  Register an already defined function for the specified field
+
+  ## Example
+
+      defp function_name(value) do
+      ...
+      end
+
+      update :field_name, with: :function_name
+
+  It is also possible to pass options to the function
+
+  ## Example with function options
+
+      defp function_name(value, opts \\ []) do
+      ...
+      end
+
+      update :field_name, with: :function_name, opts: [opt1: true]
+  """
   defmacro update(field, [{:with, with}|t]) do
-    args = Keyword.get(t, :args, [])
-    quote do
-      @updates {unquote(field), {__MODULE__, unquote(with), unquote(args)}}
+    opts = Keyword.get(t, :opts, [])
+    if not Keyword.keyword?(opts) do
+      raise ArgumentError, message: "invalid opts for #{inspect with}, expected a keyword list, got: #{inspect opts}"
     end
+
+    quote do: @updates {unquote(field), {unquote(with), unquote(opts)}}
   end
 
-  defmacro validate(field, scope, [do: block]) do
-    scoped_val = scoped_val(scope)
-    call = quote do: validate(unquote(scoped_val), unquote(field))
-    func = func(call, scope, block)
-    quote do
-      unquote(func)
-      field = unquote(field)
-      ref = {field, {__MODULE__, :validate, [field]}}
-      if not Enum.member?(@validations, ref) do
-        @validations ref
+  @doc """
+  Define and register an validation function for the specified field.
+
+  ## Examples
+
+      validate :field_name, value when is_binary(value), do: :ok
+
+      validate :field_name, value do
+        {:error, "value is not binary"}
       end
-    end
+  """
+  defmacro validate(field, scope, [do: block]) do
+    register_func({:validate, field, scope, block}, :validations)
   end
 
-  defp put_validation(field, module, ref, args) do
+  defp put_validation(field, module, ref, opts) do
     quote do
       field = unquote(field)
       module = unquote(module)
       ref = unquote(ref)
-      args = unquote(args)
-      @validations {field, {module, ref, args}}
+      opts = unquote(opts)
+      @validations {field, {module, ref, opts}}
     end
   end
 
@@ -104,76 +147,88 @@ defmodule Avex.Model do
     put_validation(field, Avex, :validate_exclusion, [list|[t]])
   end
 
-  def normalize(map) when is_map(map) do
-    Enum.reduce(map, %{}, fn
-      {k, v}, acc when is_binary(k) ->
-        Map.put(acc, k, v)
-      {k, v}, acc when is_atom(k) ->
-        Map.put(acc, Atom.to_string(k), v)
+  defp call(func, value, opts) do
+    quote do: unquote(func)(unquote(value), unquote(opts))
+  end
+
+  defp apply_updates(field, params, updates) do
+    value = quote do: Map.get(params, to_string(unquote(field)))
+    field_updates = Keyword.get_values(updates, field)
+    Enum.reduce(field_updates, value, fn {func, opts}, value ->
+      call(func, value, opts)
     end)
   end
 
-  def apply_updates(field, value, updates) do
-    updates
-      |> Keyword.get_values(field)
-      |> Enum.reduce(value, fn {m, f, args}, v -> apply(m, f, [v|args]) end)
-  end
-
-  defp apply_validation(module, f, args, errors) do
-    case apply(module, f, args) do
-      :ok -> errors
-      {:error, message} -> [message|errors]
-    end
-  end
-
-  def apply_validations(field, value, required_fields, validations) do
-    case value do
-      nil ->
-        error = if field in required_fields, do: "required", else: []
-        {{field, nil}, {field, error}}
-      _ ->
-        field_errors = validations
-          |> Keyword.get_values(field)
-          |> Enum.reduce([], fn {m, f, args}, e ->
-              apply_validation(m, f, [value|args], e)
-            end)
-
-        errors = case field_errors do
-          [e] -> {field, e}
-          _ -> {field, field_errors}
+  defp apply_validations(field, value, required_fields, validations) do
+    field_validations = Keyword.get_values(validations, field)
+    quote do
+      field = unquote(field)
+      required_fields = unquote(required_fields)
+      case unquote(value) do
+        nil ->
+          if field in required_fields, do: "required", else: []
+        value ->
+          unquote(field_validations)
+          |> Enum.reduce([], fn
+            {module, f, opts}, errors ->
+              case apply(module, f, [value|opts]) do
+                :ok -> errors
+                {:error, message} -> [message|errors]
+              end
+            {f, opts} ->
+              case f([value|opts]) do
+                :ok -> errors
+                {:error, message} -> [message|errors]
+              end
+          end)
         end
-
-        {{field, value}, errors}
     end
   end
 
   @doc false
-  defmacro __before_compile__(_) do
+  defmacro __before_compile__(env) do
+    required_fields = Module.get_attribute(env.module, :required_fields)
+    optional_fields = Module.get_attribute(env.module, :optional_fields)
+    fields = required_fields ++ optional_fields
+
+    updates = Enum.reverse(Module.get_attribute(env.module, :updates))
+    validations = Enum.reverse(Module.get_attribute(env.module, :validations))
+
+    params = quote do: params
+
+    body = Enum.reduce(fields, {[], []}, fn field, {values, errors} ->
+      value = apply_updates(field, params, updates)
+      error = apply_validations(field, value, required_fields, validations)
+      {[value|values], [error|errors]}
+    end)
+
+    IO.puts Macro.to_string(body)
+
     quote do
-      defstruct @required_fields ++ @optional_fields
+      defstruct unquote(fields)
 
-      def cast(params) do
-        required_fields = Enum.reverse @required_fields
-        optional_fields = Enum.reverse @optional_fields
-        fields = required_fields ++ optional_fields
-        updates = Enum.reverse @updates
-        validations = Enum.reverse @validations
-        params = Avex.Model.normalize(params)
+      # def cast(params) do
+      #   params = Enum.reduce(params, %{}, fn
+      #     {k, v}, acc when is_binary(k) ->
+      #       Map.put(acc, k, v)
+      #     {k, v}, acc when is_atom(k) ->
+      #       Map.put(acc, Atom.to_string(k), v)
+      #   end)
 
-        {values, errors} = Enum.reduce(fields, {[], []}, fn field, {values, errors} ->
-          value = Avex.Model.apply_updates(field, Map.get(params, to_string(field)), updates)
-          {value, error} = Avex.Model.apply_validations(field, value, required_fields, validations)
+      #   {values, errors} = Enum.reduce(fields, {[], []}, fn field, {values, errors} ->
+      #     value = Avex.Model.apply_updates(field, Map.get(params, to_string(field)), updates)
+      #     {value, error} = Avex.Model.apply_validations(field, value, required_fields, validations)
 
-          errors = case error do
-            {^field, []} -> errors
-            {^field, _} -> [error|errors]
-          end
+      #     errors = case error do
+      #       {^field, []} -> errors
+      #       {^field, _} -> [error|errors]
+      #     end
 
-          {[value|values], errors}
-        end)
+      #     {[value|values], errors}
+      #   end)
 
-        {struct(__MODULE__, values), length(errors) == 0, errors}
-      end
+      #   {struct(__MODULE__, values), length(errors) == 0, errors}
+      # end
     end
   end
 end

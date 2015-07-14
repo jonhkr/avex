@@ -27,9 +27,9 @@ defmodule Avex.ModelTest do
       end
     end
 
-    def trim(data, opts \\ [])
-    def trim(nil, _), do: nil
-    def trim(data, opts) do
+    defp trim(data, opts \\ [])
+    defp trim(nil, _), do: nil
+    defp trim(data, opts) do
       case Keyword.get(opts, :max_length, :infinity) do
         :infinity -> data
         len -> String.slice(data, 0, len)
