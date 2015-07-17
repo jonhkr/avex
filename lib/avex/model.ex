@@ -126,8 +126,14 @@ defmodule Avex.Model do
     quote do
       def cast(params) do
         params = params
-        |> Enum.map(fn k, v ->
-
+        |> Enum.reduce(%{}, fn key, value, map ->
+          case k do
+            k when is_atom(k) ->
+              Map.put(map, Atom.to_string(k), value)
+            k when is_binary(k) ->
+              Map.put(map, k, value)
+            _ -> raise ArgumentError, message: "unespected params key type: #{inspect key}"
+          end
         end)
         errors = unquote(errors)
         IO.inspect errors
