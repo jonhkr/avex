@@ -4,32 +4,32 @@ defmodule Avex.Model do
     quote do
       import Avex.Model
       import Avex.Validations
- 
+
       Module.register_attribute(__MODULE__, :updates, accumulate: true)
       Module.register_attribute(__MODULE__, :validations, accumulate: true)
- 
+
       @before_compile Avex.Model
     end
   end
- 
+
   defp def_validation(field, scope, block) do
     quote do
       defp validate_field(unquote(scope), unquote(field)), do: unquote(block)
     end
   end
- 
+
   defp put_validation(field, function) do
     quote do
       @validations {unquote(field), unquote(Macro.escape(function))}
     end
   end
- 
+
   defmacro validate_presence_of(fields, opts \\ []) do
     Enum.map(fields, fn field ->
       put_validation(field, quote(do: present(unquote(opts))))
     end)
   end
- 
+
   defmacro validate(field, functions) when is_list(functions) do
     functions
     |> Enum.reverse
@@ -44,7 +44,7 @@ defmodule Avex.Model do
       unquote(put_validation(field, quote(do: validate_field(unquote(field)))))
     end
   end
-  
+
   defp def_update(field, scope, block) do
     quote do
       defp update_field(unquote(scope), unquote(field)), do: unquote(block)
@@ -76,7 +76,7 @@ defmodule Avex.Model do
     validations
     |> Enum.reduce(nil, fn function, errors ->
       validation = Macro.pipe(value, function, 0)
- 
+
       quote do
         case unquote(validation) do
           {true, _} -> unquote(errors)
@@ -90,24 +90,28 @@ defmodule Avex.Model do
     values = quote do: values
     fields
     |> Enum.reduce([], fn field, errors ->
-      value = quote do: Map.get(unquote(values), to_string(unquote(field)))
-      error = process_validations_for(field, value, Keyword.get_values(validations, field))
-      
-      quote bind_quoted: [error: error, errors: errors, field: field] do
-        if is_nil(error), do: errors, else: [{field, error} | errors]
+      value = quote do: Keyword.get(unquote(values), unquote(field))
+      field_validations = Keyword.get_values(validations, field)
+
+      quote do
+        case unquote(process_validations_for(field, value, field_validations)) do
+          nil -> unquote(errors)
+          error ->[{unquote(field), error} | unquote(errors)]
+        end
       end
     end)
   end
 
   defp apply_updates(fields, updates) do
     fields
-    |> Enum.reduce([], fn field, values ->
-        value = quote do: Map.get(params, to_string(unquote(field)))
+    |> Enum.reduce([], fn {field, value}, values ->
+        value = quote do: Map.get(params, to_string(unquote(field))) || unquote(value)
         value = Keyword.get_values(updates, field)
         |> Enum.reduce(value, fn function, value ->
             Macro.pipe(value, function, 0)
           end)
-        [{field, value}, values]
+
+        [{field, value} | values]
       end)
   end
 
@@ -116,28 +120,29 @@ defmodule Avex.Model do
 
     updates = Module.get_attribute(env.module, :updates)
     validations = Module.get_attribute(env.module, :validations)
-  
-    updated_values = apply_updates(Enum.uniq(Keyword.keys(updates)), updates)
+    fields = Module.get_attribute(env.module, :struct)
+    |> Map.delete(:__struct__)
+
+    values = apply_updates(fields, updates)
     errors = apply_validations(Enum.uniq(Keyword.keys(validations)), validations)
- 
-    IO.puts Macro.to_string(updated_values)
- 
-    IO.inspect Module.get_attribute(env.module, :struct)
+
     quote do
       def cast(params) do
         params = params
-        |> Enum.reduce(%{}, fn key, value, map ->
-          case k do
+        |> Enum.reduce(%{}, fn {key, value}, map ->
+          case key do
             k when is_atom(k) ->
               Map.put(map, Atom.to_string(k), value)
             k when is_binary(k) ->
               Map.put(map, k, value)
-            _ -> raise ArgumentError, message: "unespected params key type: #{inspect key}"
+            _ -> raise ArgumentError, message: "unespected key: #{inspect key}"
           end
         end)
+
+        values = unquote(values)
         errors = unquote(errors)
-        IO.inspect errors
-        # {struct(__MODULE__, values), length(errors) == 0, errors}
+
+        {struct(__MODULE__, values), length(errors) == 0, errors}
       end
     end
   end
