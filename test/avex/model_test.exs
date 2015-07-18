@@ -3,21 +3,21 @@ defmodule Avex.ModelTest do
 
   defmodule Post do
     use Avex.Model
-    
+
     defstruct [:a, :b, :c]
-    validate_presence_of [:a, :b]
-   
+    # validate_presence_of [:a, :b]
+
     # update :a, value when is_binary(value) do
     #   String.upcase(value)
     # end
     # update :a, nil, do: nil
-   
+
     update :b, [capitalize, capitalize]
-   
+
     validate :a, my_validation(message: "a must be present")
-    
+
     validate :b, format(~r/[a-zA-Z]/)
-   
+
     validate :d, value do
       if value do
         {true, value}
@@ -25,12 +25,12 @@ defmodule Avex.ModelTest do
         {false, "damn, d value is wrong"}
       end
     end
-   
+
     defp capitalize(nil), do: nil
     defp capitalize(value) when is_binary(value) do
       String.capitalize(value)
     end
-   
+
     defp my_validation(value, opts) do
       if value do
         {true, value}

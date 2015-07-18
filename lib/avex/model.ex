@@ -14,12 +14,14 @@ defmodule Avex.Model do
 
   defp def_validation(field, scope, block) do
     quote do
+      unquote validate_field(field)
       defp validate_field(unquote(scope), unquote(field)), do: unquote(block)
     end
   end
 
   defp put_validation(field, function) do
     quote do
+      unquote validate_field(field)
       @validations {unquote(field), unquote(Macro.escape(function))}
     end
   end
@@ -47,12 +49,14 @@ defmodule Avex.Model do
 
   defp def_update(field, scope, block) do
     quote do
+      unquote validate_field(field)
       defp update_field(unquote(scope), unquote(field)), do: unquote(block)
     end
   end
 
   defp put_update(field, function) do
     quote do
+      unquote validate_field(field)
       @updates {unquote(field), unquote(Macro.escape(function))}
     end
   end
@@ -72,7 +76,20 @@ defmodule Avex.Model do
     end
   end
 
-  defp process_validations_for(field, value, validations) do
+  defp validate_field(field) do
+    quote bind_quoted: [field: field] do
+      unless Map.has_key?(@struct, field) do
+        raise ArgumentError, message: "field #{inspect field} is not registered, " <>
+          "make sure it is in the struct definition."
+      end
+    end
+  end
+
+  defp get_fields(env), do: Module.get_attribute(env.module, :struct)
+  defp get_validations(env), do: Module.get_attribute(env.module, :validations)
+  defp get_updates(env), do: Module.get_attribute(env.module, :updates)
+
+  defp process_field_validations(value, validations) do
     validations
     |> Enum.reduce(nil, fn function, errors ->
       validation = Macro.pipe(value, function, 0)
@@ -94,7 +111,7 @@ defmodule Avex.Model do
       field_validations = Keyword.get_values(validations, field)
 
       quote do
-        case unquote(process_validations_for(field, value, field_validations)) do
+        case unquote(process_field_validations(value, field_validations)) do
           nil -> unquote(errors)
           error ->[{unquote(field), error} | unquote(errors)]
         end
@@ -117,10 +134,9 @@ defmodule Avex.Model do
 
   @doc false
   defmacro __before_compile__(env) do
-
-    updates = Module.get_attribute(env.module, :updates)
-    validations = Module.get_attribute(env.module, :validations)
-    fields = Module.get_attribute(env.module, :struct)
+    updates = get_updates(env)
+    validations = get_validations(env)
+    fields = get_fields(env)
     |> Map.delete(:__struct__)
 
     values = apply_updates(fields, updates)
