@@ -12,7 +12,7 @@ defmodule Avex.Validations do
   def present(nil, opts), do: {false, message(opts, "required")}
   def present(value, _opts), do: {true, value}
 
-  def inclusion(value, list, opts) do
+  def inclusion(value, list, opts \\ []) do
     if value in list do
       {true, value}
     else
@@ -20,7 +20,7 @@ defmodule Avex.Validations do
     end
   end
 
-  def exclusion(value, list, opts) do
+  def exclusion(value, list, opts \\ []) do
     if value in list do
       {false, message(opts, "is invalid")}
     else
@@ -28,7 +28,7 @@ defmodule Avex.Validations do
     end
   end
 
-  def format(value, format, opts) when is_binary(value) do
+  def format(value, format, opts \\ []) when is_binary(value) do
     if value =~ format do
       {true, value}
     else

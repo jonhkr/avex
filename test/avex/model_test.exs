@@ -39,4 +39,10 @@ defmodule Avex.ModelTest do
       end
     end
   end
+
+  test "test" do
+    {post, valid?, errors} = Post.cast(%{"b" => "asd"})
+    IO.inspect post
+    assert valid? == false
+  end
 end
