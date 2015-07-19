@@ -18,7 +18,7 @@ defmodule Avex.ModelTest do
 
     validate :b, format(~r/[a-zA-Z]/)
 
-    validate :d, value do
+    validate :c, value do
       if value do
         {true, value}
       else
