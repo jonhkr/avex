@@ -4,78 +4,103 @@ defmodule Avex.ModelTest do
   defmodule Post do
     use Avex.Model
 
-    fields :required, [:title, :body, :number]
-    fields :optional, [:tag]
+    defstruct [:title, :body, :tag]
+    validate_presence_of [:title, :body]
 
-    update :title, title when is_binary(title), do: String.capitalize(title)
-    update :title, _, do: nil
-    update :body, with: :trim, args: [[max_length: 5]]
-
-    validate :title,
-      format: ~r/[a-zA-Z0-9]+/,
-      message: "title must be formed of alphanumeric characters"
-
-    validate :tag, inclusion: ["Tech", "Tools", "Movies"]
-    validate :tag,
-      exclusion: ["Books"],
-      message: "should not be \"Books\""
-
-    validate :body, body do
-      case String.length(body) do
-        len when len < 200 -> {:error, "body is too short"}
-        _ -> :ok
-      end
+    update :title, nil, do: nil
+    update :title, value when is_boolean(value), do: value
+    update :title, value when is_binary(value) do
+      String.capitalize(value)
     end
 
-    defp trim(data, opts \\ [])
-    defp trim(nil, _), do: nil
-    defp trim(data, opts) do
-      case Keyword.get(opts, :max_length, :infinity) do
-        :infinity -> data
-        len -> String.slice(data, 0, len)
+    update :body, [capitalize]
+    update :tag, capitalize
+
+    defp capitalize(nil), do: nil
+    defp capitalize(value) when is_binary(value) do
+      String.capitalize(value)
+    end
+
+    validate :title, my_validation(message: "CUSTOM VALIDATION")
+    validate :title, true, do: {false, "DO BLOCK VALIDATION"}
+    validate :title, value when is_binary(value) do
+      {false, "DO BLOCK VALIDATION WITH GUARD"}
+    end
+
+    validate :body, format(~r/^[a-zA-Z]+$/)
+    validate :tag, inclusion(["Books"])
+
+
+    defp my_validation(value, opts) do
+      if value do
+        {true, value}
+      else
+        {false, opts[:message]}
       end
     end
   end
 
-  test "validate required fields" do
-    {_, valid?, errors} = Post.cast(%{})
+  test "update arguments" do
+    {post, _valid?, _errors} = Post.cast(%{
+      "title" => "uncapitalized text",
+      "body" => "uncapitalized text",
+      "tag" => "uncapitalized"
+    })
+
+    assert post.title == String.capitalize("uncapitalized text")
+    assert post.body == String.capitalize("uncapitalized text")
+    assert post.tag == String.capitalize("uncapitalized")
+  end
+
+  test "validate presence" do
+    {post, valid?, errors} = Post.cast(%{})
 
     assert valid? == false
+    assert post.title == nil
+    assert post.body == nil
+
     assert Keyword.get(errors, :title) == "required"
     assert Keyword.get(errors, :body) == "required"
-    assert Keyword.get(errors, :tag) == nil
   end
 
-  test "update fields" do
-    {post, _, _} = Post.cast(%{"title" => "capitalized Title"})
+  test "do block validation" do
+    {post, valid?, errors} = Post.cast(%{"title" => "binary"})
 
-    assert post.title == "Capitalized title"
+    assert valid? == false
+    assert post.title == "Binary"
+
+    assert Keyword.get(errors, :title) == "DO BLOCK VALIDATION WITH GUARD"
+
+    {post, valid?, errors} = Post.cast(%{"title" => true})
+
+    assert valid? == false
+    assert post.title == true
+
+    assert Keyword.get(errors, :title) == "DO BLOCK VALIDATION"
   end
 
-  test "pass args to update function" do
-    {post, _, _} = Post.cast(%{"body" => "capitalized Title"})
-    assert String.length(post.body) == 5
+  test "custom validation" do
+    {post, valid?, errors} = Post.cast(%{"title" => false})
+
+    assert valid? == false
+    assert post.title == false
+
+    assert Keyword.get(errors, :title) == "CUSTOM VALIDATION"
   end
 
-  test "validate format" do
-    {_, _, errors} = Post.cast(%{"title" => "¢$£"})
-    assert Keyword.get(errors, :title) == "title must be formed of alphanumeric characters"
+  test "build-in validation" do
+    {post, valid?, errors} = Post.cast(%{"body" => "123Ax"})
 
-    {_, _, errors} = Post.cast(%{"title" => "Alphanumeric t1t1e"})
-    assert Keyword.get(errors, :title) == nil
-  end
+    assert valid? == false
+    assert post.body == "123ax"
 
-  test "validate included" do
-    tag = "Not included"
-    {_, _, errors} = Post.cast(%{"tag" => tag})
-    assert Keyword.get(errors, :tag) == "#{inspect tag} is invalid"
+    assert Keyword.get(errors, :body) == "invalid format"
 
-    {_, _, errors} = Post.cast(%{"tag" => "Tech"})
-    assert Keyword.get(errors, :tag) == nil
-  end
+    {post, valid?, errors} = Post.cast(%{"body" => "abc"})
 
-  test "validate excluded" do
-    {_, _, errors} = Post.cast(%{"tag" => "Books"})
-    assert "should not be \"Books\"" in Keyword.get(errors, :tag)
+    assert valid? == false
+    assert post.body == "Abc"
+
+    assert Keyword.get(errors, :body) == nil
   end
 end
