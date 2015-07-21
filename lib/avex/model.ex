@@ -86,6 +86,9 @@ defmodule Avex.Model do
     end
   end
 
+  @doc """
+  Register a list of functions to update the field
+  """
   defmacro update(field, functions) when is_list(functions) do
     functions
     |> Enum.reverse
@@ -93,7 +96,50 @@ defmodule Avex.Model do
         put_update(field, function)
       end)
   end
+
+  @doc """
+  Register a function to update the field
+
+  The function must be in the module's context
+  
+  **All update functions are executed before the validations**
+
+  ## Examples
+
+      update :field, capitalize
+
+      def capitalize(value) when is_binary(value) do
+        String.capitalize
+      end
+
+      def capitalize(nil), do: nil
+  """
   defmacro update(field, function), do: put_update(field, function)
+
+  @doc """
+  Defines and register an update function
+
+  ## Examples
+
+      update :field, value do
+        case Integer.parse(value) do
+          {i, _} -> i
+          :error -> nil
+        end
+      end
+
+  Guards are also supported
+
+      update :field, value when is_binary(value) do
+        case Integer.parse(value) do
+          {i, _} -> i
+          :error -> nil
+        end
+      end
+
+      update :field, value when is_integer(value), do: value
+      update :field, _, do: nil
+  """
   defmacro update(field, scope, [do: block]) do
     quote do
       unquote(def_update(field, scope, block))
@@ -191,7 +237,7 @@ defmodule Avex.Model do
   defp apply_updates(fields, updates) do
     fields
     |> Enum.reduce([], fn {field, value}, values ->
-        value = quote do: Map.get(params, to_string(unquote(field))) || unquote(value)
+        value = quote do: Map.get(params, to_string(unquote(field)), unquote(value))
         value = Keyword.get_values(updates, field)
         |> Enum.reduce(value, fn function, value ->
             Macro.pipe(value, function, 0)
