@@ -12,6 +12,80 @@ defmodule Avex.Model do
     end
   end
 
+  @doc """
+  Mark the provided fields as required
+
+  It is also possible to specify a `:message` to be returned
+  for every invalid field
+
+  ## Example
+
+      validate_presence_of([:title, :body], message: "required")
+
+  """
+  defmacro validate_presence_of(fields, opts \\ []) do
+    Enum.map(fields, fn field ->
+      put_validation(field, quote(do: present(unquote(opts))))
+    end)
+  end
+
+  @doc """
+  Register a list of functions to validate the field
+  """
+  defmacro validate(field, functions) when is_list(functions) do
+    functions
+    |> Enum.reverse
+    |> Enum.map(fn function ->
+        put_validation(field, function)
+      end)
+  end
+
+  @doc """
+  Register a function to validate the field
+
+  The function can be any of the pre-defined functions or a validation
+  function at the module context.
+
+  ## Examples
+
+      validate :field, present(message: "required")
+
+      validate :field, my_validation(message: "hey you")
+
+      def my_validation(value, opts \\ []) do
+        if value do
+          {true, value}
+        else
+          {false, Keyword.get(opts, :message) || "my message"}
+        end
+      end
+  """
+  defmacro validate(field, function), do: put_validation(field, function)
+
+  @doc """
+  Defines and register a new validation function
+
+  ## Examples
+
+      validate :field, value do
+        {true, value}
+      end
+
+  Guards are also supported
+
+      validate :field, value when is_binary(value) do
+        {true, value}
+      end
+
+      validate :field, _, do: {false, "invalid"}
+  """
+  defmacro validate(field, scope, [do: block]) do
+    quote do
+      unquote(def_validation(field, scope, block))
+      unquote(put_validation(field, quote(do: validate_field(unquote(field)))))
+    end
+  end
+
   defp scoped_value({:when, _, [value|_]}), do: value
   defp scoped_value(value), do: value
 
@@ -36,27 +110,6 @@ defmodule Avex.Model do
     end
   end
 
-  defmacro validate_presence_of(fields, opts \\ []) do
-    Enum.map(fields, fn field ->
-      put_validation(field, quote(do: present(unquote(opts))))
-    end)
-  end
-
-  defmacro validate(field, functions) when is_list(functions) do
-    functions
-    |> Enum.reverse
-    |> Enum.map(fn function ->
-        put_validation(field, function)
-      end)
-  end
-  defmacro validate(field, function), do: put_validation(field, function)
-  defmacro validate(field, scope, [do: block]) do
-    quote do
-      unquote(def_validation(field, scope, block))
-      unquote(put_validation(field, quote(do: validate_field(unquote(field)))))
-    end
-  end
-
   defp def_update(field, scope, block) do
     call = quote do: update_field(unquote(scoped_value(scope)), unquote(field))
     quote do
@@ -72,12 +125,6 @@ defmodule Avex.Model do
       function = unquote(Macro.escape(function))
       ref = {field, function}
       if not Enum.member?(@updates, ref), do: @updates ref
-    end
-  end
-
-  defp update_exists?(field, function) do
-    quote do
-      Enum.member?(@updates, {unquote(field), unquote(Macro.escape(function))})
     end
   end
 
