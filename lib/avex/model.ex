@@ -12,17 +12,27 @@ defmodule Avex.Model do
     end
   end
 
+  defp scoped_value({:when, _, [value|_]}), do: value
+  defp scoped_value(value), do: value
+
+  defp func_head(call, {:when, context, [_|t]}), do: {:when, context, [call|t]}
+  defp func_head(call, _), do: call
+
   defp def_validation(field, scope, block) do
+    call = quote do: validate_field(unquote(scoped_value(scope)), unquote(field))
     quote do
       unquote validate_field(field)
-      defp validate_field(unquote(scope), unquote(field)), do: unquote(block)
+      defp unquote(func_head(call, scope)), do: unquote(block)
     end
   end
 
   defp put_validation(field, function) do
     quote do
       unquote validate_field(field)
-      @validations {unquote(field), unquote(Macro.escape(function))}
+      field = unquote(field)
+      function = unquote(Macro.escape(function))
+      ref = {field, function}
+      if not Enum.member?(@validations, ref), do: @validations ref
     end
   end
 
@@ -48,16 +58,26 @@ defmodule Avex.Model do
   end
 
   defp def_update(field, scope, block) do
+    call = quote do: update_field(unquote(scoped_value(scope)), unquote(field))
     quote do
       unquote validate_field(field)
-      defp update_field(unquote(scope), unquote(field)), do: unquote(block)
+      defp unquote(func_head(call, scope)), do: unquote(block)
     end
   end
 
   defp put_update(field, function) do
     quote do
       unquote validate_field(field)
-      @updates {unquote(field), unquote(Macro.escape(function))}
+      field = unquote(field)
+      function = unquote(Macro.escape(function))
+      ref = {field, function}
+      if not Enum.member?(@updates, ref), do: @updates ref
+    end
+  end
+
+  defp update_exists?(field, function) do
+    quote do
+      Enum.member?(@updates, {unquote(field), unquote(Macro.escape(function))})
     end
   end
 

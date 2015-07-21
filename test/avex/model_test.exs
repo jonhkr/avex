@@ -7,10 +7,10 @@ defmodule Avex.ModelTest do
     defstruct [:a, :b, :c]
     # validate_presence_of [:a, :b]
 
-    # update :a, value when is_binary(value) do
-    #   String.upcase(value)
-    # end
-    # update :a, nil, do: nil
+    update :a, value when is_binary(value) do
+      String.upcase(value)
+    end
+    update :a, nil, do: "nil"
 
     update :b, [capitalize, capitalize]
 
@@ -18,13 +18,11 @@ defmodule Avex.ModelTest do
 
     validate :b, format(~r/[a-zA-Z]/)
 
-    validate :c, value do
-      if value do
-        {true, value}
-      else
-        {false, "damn, d value is wrong"}
-      end
+    validate :c, value when is_binary(value) do
+      {false, "damn, d value is wrong"}
     end
+
+    validate :c, nil, do: {true, nil}
 
     defp capitalize(nil), do: nil
     defp capitalize(value) when is_binary(value) do
@@ -41,8 +39,9 @@ defmodule Avex.ModelTest do
   end
 
   test "test" do
-    {post, valid?, errors} = Post.cast(%{"b" => "asd"})
+    {post, valid?, errors} = Post.cast(%{"b" => "asd", "a" => "hey", "c" => "haha"})
     IO.inspect post
+    IO.inspect errors
     assert valid? == false
   end
 end
