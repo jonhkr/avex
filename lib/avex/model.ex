@@ -86,6 +86,32 @@ defmodule Avex.Model do
     end
   end
 
+  defmacro update(field, functions) when is_list(functions) do
+    functions
+    |> Enum.reverse
+    |> Enum.map(fn function ->
+        put_update(field, function)
+      end)
+  end
+  defmacro update(field, function), do: put_update(field, function)
+  defmacro update(field, scope, [do: block]) do
+    quote do
+      unquote(def_update(field, scope, block))
+      unquote(put_update(field, quote(do: update_field(unquote(field)))))
+    end
+  end
+
+  # Private
+
+  defp validate_field(field) do
+    quote bind_quoted: [field: field] do
+      unless Map.has_key?(@struct, field) do
+        raise ArgumentError, message: "field #{inspect field} is not registered, " <>
+          "make sure it is in the struct definition."
+      end
+    end
+  end
+
   defp scoped_value({:when, _, [value|_]}), do: value
   defp scoped_value(value), do: value
 
@@ -125,30 +151,6 @@ defmodule Avex.Model do
       function = unquote(Macro.escape(function))
       ref = {field, function}
       if not Enum.member?(@updates, ref), do: @updates ref
-    end
-  end
-
-  defmacro update(field, functions) when is_list(functions) do
-    functions
-    |> Enum.reverse
-    |> Enum.map(fn function ->
-        put_update(field, function)
-      end)
-  end
-  defmacro update(field, function), do: put_update(field, function)
-  defmacro update(field, scope, [do: block]) do
-    quote do
-      unquote(def_update(field, scope, block))
-      unquote(put_update(field, quote(do: update_field(unquote(field)))))
-    end
-  end
-
-  defp validate_field(field) do
-    quote bind_quoted: [field: field] do
-      unless Map.has_key?(@struct, field) do
-        raise ArgumentError, message: "field #{inspect field} is not registered, " <>
-          "make sure it is in the struct definition."
-      end
     end
   end
 
