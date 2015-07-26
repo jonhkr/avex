@@ -9,31 +9,21 @@ defmodule Avex.Validations do
   }
 
   def present(value, opts \\ [])
-  def present(nil, opts), do: {false, message(opts, "required")}
-  def present(value, _opts), do: {true, value}
+  def present(nil, opts), do: {:error, message(opts, "required")}
+  def present(value, _opts), do: value
 
   def inclusion(value, list, opts \\ []) do
-    if value in list do
-      {true, value}
-    else
-      {false, message(opts, "is invalid")}
-    end
+    if value in list, do: true, else: {:error, message(opts, "is invalid")}
   end
 
   def exclusion(value, list, opts \\ []) do
-    if value in list do
-      {false, message(opts, "is invalid")}
-    else
-      {true, value}
-    end
+    if value in list, do: {:error, message(opts, "is invalid")}, else: true
   end
 
-  def format(value, format, opts \\ []) when is_binary(value) do
-    if value =~ format do
-      {true, value}
-    else
-      {false, message(opts, "invalid format")}
-    end
+  def format(value, format, opts \\ [])
+  def format(nil, _format, opts), do: {:error, message(opts, "invalid format")}
+  def format(value, format, opts) when is_binary(value) do
+    if value =~ format, do: true, else: {:error, message(opts, "invalid format")}
   end
 
   def length(value, opts) when is_binary(value) do
@@ -41,11 +31,7 @@ defmodule Avex.Validations do
     error  = ((is = opts[:is]) && wrong_length(length, is, opts)) ||
              ((min = opts[:min]) && too_short(length, min, opts)) ||
              ((max = opts[:max]) && too_long(length, max, opts))
-    if error do
-      {false, interpolate(error, "%{count}")}
-    else
-      {true, value}
-    end
+    if error, do: {:error, interpolate(error, "%{count}")}, else: true
   end
 
   defp wrong_length(value, value, _opts), do: nil
@@ -66,11 +52,7 @@ defmodule Avex.Validations do
             ((gte = opts[:>=]) && validate_number(value, gte, @number_validators[:>=], opts)) ||
             ((lte = opts[:<=]) && validate_number(value, lte, @number_validators[:<=], opts)) ||
             ((eq = opts[:==]) && validate_number(value, eq, @number_validators[:==], opts))
-    if error do
-      {false, interpolate(error, "%{count}")}
-    else
-      {true, value}
-    end
+    if error, do: {:error, interpolate(error, "%{count}")}, else: true
   end
 
   defp validate_number(number, value, op, opts) do

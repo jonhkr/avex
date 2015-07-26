@@ -22,21 +22,22 @@ defmodule Avex.ModelTest do
     end
 
     validate :title, my_validation(message: "CUSTOM VALIDATION")
-    validate :title, true, do: {false, "DO BLOCK VALIDATION"}
+    validate :title, true, do: {:error, "DO BLOCK VALIDATION"}
     validate :title, value when is_binary(value) do
-      {false, "DO BLOCK VALIDATION WITH GUARD"}
+      {:error, "DO BLOCK VALIDATION WITH GUARD"}
     end
 
     validate :body, format(~r/^[a-zA-Z]+$/)
-    validate :tag, inclusion(["Books"])
+    validate :tag, tag when is_binary(tag) do
+      String.upcase(tag)
+    end
+    validate :tag, nil do
+      {:error, "required"}
+    end
 
 
     defp my_validation(value, opts) do
-      if value do
-        {true, value}
-      else
-        {false, opts[:message]}
-      end
+      if value, do: true, else: {:error, opts[:message]}
     end
   end
 

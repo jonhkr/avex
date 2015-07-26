@@ -52,12 +52,8 @@ defmodule Avex.Model do
 
       validate :field, my_validation(message: "hey you")
 
-      def my_validation(value, opts \\ []) do
-        if value do
-          {true, value}
-        else
-          {false, Keyword.get(opts, :message) || "my message"}
-        end
+      def my_validation(value, opts \\\\ []) do
+        if value, do: true, else: {:error, Keyword.get(opts, :message) || "my message"}
       end
   """
   defmacro validate(field, function), do: put_validation(field, function)
@@ -67,17 +63,12 @@ defmodule Avex.Model do
 
   ## Examples
 
-      validate :field, value do
-        {true, value}
-      end
+      validate :field, value, do: true
 
   Guards are also supported
 
-      validate :field, value when is_binary(value) do
-        {true, value}
-      end
-
-      validate :field, _, do: {false, "invalid"}
+      validate :field, value when  is_binary(value), do: true
+      validate :field, _, do: {:error, "invalid"}
   """
   defmacro validate(field, scope, [do: block]) do
     quote do
@@ -101,7 +92,7 @@ defmodule Avex.Model do
   Register a function to update the field
 
   The function must be in the module's context
-  
+
   **All update functions are executed before the validations**
 
   ## Examples
@@ -109,7 +100,7 @@ defmodule Avex.Model do
       update :field, capitalize
 
       def capitalize(value) when is_binary(value) do
-        String.capitalize
+        String.capitalize(value)
       end
 
       def capitalize(nil), do: nil
@@ -200,9 +191,12 @@ defmodule Avex.Model do
     end
   end
 
-  defp get_fields(env), do: Module.get_attribute(env.module, :struct)
   defp get_validations(env), do: Module.get_attribute(env.module, :validations)
   defp get_updates(env), do: Module.get_attribute(env.module, :updates)
+  defp get_fields(env) do
+    Module.get_attribute(env.module, :struct)
+    |> Map.delete(:__struct__)
+  end
 
   defp process_field_validations(value, validations) do
     validations
@@ -211,8 +205,8 @@ defmodule Avex.Model do
 
       quote do
         case unquote(validation) do
-          {true, _} -> unquote(errors)
-          {false, message} -> message
+          {:error, message} -> message
+          _ -> unquote(errors)
         end
       end
     end)
@@ -240,8 +234,8 @@ defmodule Avex.Model do
         value = quote do: Map.get(params, to_string(unquote(field)), unquote(value))
         value = Keyword.get_values(updates, field)
         |> Enum.reduce(value, fn function, value ->
-            Macro.pipe(value, function, 0)
-          end)
+          Macro.pipe(value, function, 0)
+        end)
 
         [{field, value} | values]
       end)
@@ -252,7 +246,6 @@ defmodule Avex.Model do
     updates = get_updates(env)
     validations = get_validations(env)
     fields = get_fields(env)
-    |> Map.delete(:__struct__)
 
     values = apply_updates(fields, updates)
     errors = apply_validations(Enum.uniq(Keyword.keys(validations)), validations)
